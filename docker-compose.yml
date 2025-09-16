@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql8_container
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: SuperSecretRoot123!
+      MYSQL_DATABASE: meditrack
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: AppUserPass456@
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-config:/etc/mysql/conf.d
+      - ./init:/docker-entrypoint-initdb.d
+    networks:
+      - mysql_network
+    command: --default-authentication-plugin=mysql_native_password
+      --innodb-buffer-pool-size=256M
+      --max-connections=200
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: phpmyadmin_container
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: SuperSecretRoot123!
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
+    networks:
+      - mysql_network
+
+volumes:
+  mysql_data:
+
+networks:
+  mysql_network:
+    driver: bridge
