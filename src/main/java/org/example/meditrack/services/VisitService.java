@@ -15,6 +15,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -71,63 +72,97 @@ public class VisitService {
 
         Pageable pageable = PageRequest.of(actualPage, actualSize);
 
-        Page<Patient> patientsPage = patientRepository.findPatientsWithFilters(search, doctorIds, pageable);
-        long totalCount = patientRepository.countPatientsWithFilters(search, doctorIds);
+        Page<Object[]> resultPage;
 
-        if (patientsPage.isEmpty()) {
-            return new PatientsListResponse(Collections.emptyList(), totalCount);
+        if (doctorIds == null || doctorIds.isEmpty()) {
+            resultPage = patientRepository.findAllPatientsWithData(search, pageable);
+        } else {
+            resultPage = patientRepository.findPatientsWithAllData(search, doctorIds, doctorIds.size(), pageable);
         }
 
-        List<Long> patientIds = patientsPage.getContent().stream()
-                .map(Patient::getId)
-                .collect(Collectors.toList());
+        if (resultPage.isEmpty()) {
+            return PatientsListResponse.builder()
+                    .data(Collections.emptyList())
+                    .count(resultPage.getTotalElements())
+                    .build();
+        }
 
-        List<Visit> latestVisits = visitRepository.findLatestVisitsForPatients(patientIds);
+        Map<Long, PatientData> patientDataMap = new LinkedHashMap<>();
 
-        Set<Long> allDoctorIds = latestVisits.stream()
-                .map(v -> v.getDoctor().getId())
-                .collect(Collectors.toSet());
+        for (Object[] row : resultPage.getContent()) {
+            Long patientId = ((Number) row[0]).longValue();
+            String patientFirstName = (String) row[1];
+            String patientLastName = (String) row[2];
 
-        Map<Long, Integer> doctorPatientCounts = new HashMap<>();
-        if (!allDoctorIds.isEmpty()) {
-            List<Object[]> counts = visitRepository.countPatientsByDoctors(new ArrayList<>(allDoctorIds));
-            for (Object[] count : counts) {
-                doctorPatientCounts.put((Long) count[0], ((Number) count[1]).intValue());
+            PatientData patientData = patientDataMap.computeIfAbsent(
+                    patientId, id -> PatientData.builder()
+                            .firstName(patientFirstName)
+                            .lastName(patientLastName)
+                            .visits(new ArrayList<>())
+                            .build()
+            );
+
+            if (row[3] != null) {
+                // Convert Timestamp to ZonedDateTime
+                Timestamp startTimestamp = (Timestamp) row[4];
+                Timestamp endTimestamp = (Timestamp) row[5];
+                ZonedDateTime startDateTime = startTimestamp.toInstant().atZone(ZoneId.systemDefault());
+                ZonedDateTime endDateTime = endTimestamp.toInstant().atZone(ZoneId.systemDefault());
+
+                String doctorFirstName = (String) row[7];
+                String doctorLastName = (String) row[8];
+                String timezone = (String) row[9];
+                Integer patientCount = row[10] != null ? ((Number) row[10]).intValue() : 0;
+
+                VisitData visitData = VisitData.builder()
+                        .startDateTime(startDateTime)
+                        .endDateTime(endDateTime)
+                        .doctorFirstName(doctorFirstName)
+                        .doctorLastName(doctorLastName)
+                        .timezone(timezone)
+                        .patientCount(patientCount)
+                        .build();
+
+                patientData.addVisit(visitData);
             }
         }
 
-        Map<Long, List<Visit>> visitsByPatient = latestVisits.stream()
-                .collect(Collectors.groupingBy(v -> v.getPatient().getId()));
+        List<PatientResponse> patientResponses = patientDataMap.values().stream()
+                .map(this::convertToPatientResponse)
+                .collect(Collectors.toList());
 
-        List<PatientResponse> patientResponses = patientsPage.getContent().stream()
-                .map(patient -> {
-                    List<Visit> patientVisits = visitsByPatient.getOrDefault(patient.getId(), Collections.emptyList());
-                    List<VisitResponse> visitResponses = patientVisits.stream()
-                            .map(visit -> {
-                                Doctor visitDoctor = visit.getDoctor();
-                                ZoneId doctorTimezone = ZoneId.of(visitDoctor.getTimezone());
+        return PatientsListResponse.builder()
+                .data(patientResponses)
+                .count(resultPage.getTotalElements())
+                .build();
+    }
 
-                                String startFormatted = visit.getStartDateTime()
-                                        .withZoneSameInstant(doctorTimezone)
-                                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-                                String endFormatted = visit.getEndDateTime()
-                                        .withZoneSameInstant(doctorTimezone)
-                                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+    private PatientResponse convertToPatientResponse(PatientData patientData) {
+        List<VisitResponse> visitResponses = patientData.getVisits().stream()
+                .map(visitData -> {
+                    DoctorResponse doctorResponse = DoctorResponse.builder()
+                            .firstName(visitData.getDoctorFirstName())
+                            .lastName(visitData.getDoctorLastName())
+                            .totalPatients(visitData.getPatientCount())
+                            .build();
 
-                                DoctorResponse doctorResponse = new DoctorResponse(
-                                        visitDoctor.getFirstName(),
-                                        visitDoctor.getLastName(),
-                                        doctorPatientCounts.getOrDefault(visitDoctor.getId(), 0)
-                                );
-
-                                return new VisitResponse(startFormatted, endFormatted, doctorResponse);
-                            })
-                            .collect(Collectors.toList());
-
-                    return new PatientResponse(patient.getFirstName(), patient.getLastName(), visitResponses);
+                    return VisitResponse.builder()
+                            .start(formatDate(visitData.getStartDateTime(), visitData.getTimezone()))
+                            .end(formatDate(visitData.getEndDateTime(), visitData.getTimezone()))
+                            .doctor(doctorResponse)
+                            .build();
                 })
                 .collect(Collectors.toList());
 
-        return new PatientsListResponse(patientResponses, totalCount);
+        return PatientResponse.builder()
+                .firstName(patientData.getFirstName())
+                .lastName(patientData.getLastName())
+                .lastVisits(visitResponses)
+                .build();
+    }
+
+    private String formatDate(ZonedDateTime dateTime, String timezone) {
+        return dateTime.withZoneSameInstant(ZoneId.of(timezone))
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
     }
 }

@@ -1,12 +1,12 @@
 package org.example.meditrack.services;
 
-import lombok.val;
 import org.example.meditrack.dtos.CreateVisitRequest;
+import org.example.meditrack.dtos.PatientsListResponse;
+import org.example.meditrack.exceptions.BusinessException;
 import org.example.meditrack.models.Doctor;
 import org.example.meditrack.models.Patient;
 import org.example.meditrack.models.Visit;
 import org.example.meditrack.repositories.DoctorRepository;
-import org.example.meditrack.exceptions.BusinessException;
 import org.example.meditrack.repositories.PatientRepository;
 import org.example.meditrack.repositories.VisitRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +19,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
+import java.sql.Timestamp;
 import java.time.ZonedDateTime;
 import java.util.*;
 
@@ -41,96 +42,28 @@ class VisitServiceTest {
     @InjectMocks
     private VisitService visitService;
 
-    // Test data generation
-    private List<Doctor> testDoctors;
-    private List<Patient> testPatients;
-    private List<Visit> testVisits;
+    private Doctor testDoctor;
+    private Patient testPatient;
 
     @BeforeEach
     void setUp() {
-        // Generate test doctors
-        testDoctors = new ArrayList<>();
-        testDoctors.add(Doctor.builder()
+        testDoctor = Doctor.builder()
                 .id(1L)
                 .firstName("John")
                 .lastName("Doe")
                 .timezone("America/New_York")
-                .build());
-        testDoctors.add(Doctor.builder()
-                .id(2L)
-                .firstName("Alice")
-                .lastName("Smith")
-                .timezone("Europe/London")
-                .build());
-        testDoctors.add(Doctor.builder()
-                .id(3L)
-                .firstName("Bob")
-                .lastName("Johnson")
-                .timezone("Asia/Tokyo")
-                .build());
+                .build();
 
-        // Generate test patients
-        testPatients = new ArrayList<>();
-        testPatients.add(Patient.builder()
+        testPatient = Patient.builder()
                 .id(1L)
                 .firstName("Jane")
-                .lastName("Doe")
-                .build());
-        testPatients.add(Patient.builder()
-                .id(2L)
-                .firstName("Michael")
-                .lastName("Brown")
-                .build());
-        testPatients.add(Patient.builder()
-                .id(3L)
-                .firstName("Emily")
-                .lastName("Davis")
-                .build());
-        testPatients.add(Patient.builder()
-                .id(4L)
-                .firstName("David")
-                .lastName("Wilson")
-                .build());
-
-        // Generate test visits with cross-relations:
-        // - Doctor 1 has patients 1,2,3
-        // - Doctor 2 has patients 1,3,4
-        // - Doctor 3 has patients 2,4
-        // - Patient 1 visits doctors 1,2
-        // - Patient 2 visits doctors 1,3
-        // - Patient 3 visits doctors 1,2
-        // - Patient 4 visits doctors 2,3
-        testVisits = new ArrayList<>();
-        // Visits for Doctor 1
-        testVisits.add(createVisit(1L, testDoctors.get(0), testPatients.get(0), "2024-06-01T10:00:00-04:00", "2024-06-01T11:00:00-04:00"));
-        testVisits.add(createVisit(2L, testDoctors.get(0), testPatients.get(1), "2024-06-02T10:00:00-04:00", "2024-06-02T11:00:00-04:00"));
-        testVisits.add(createVisit(3L, testDoctors.get(0), testPatients.get(2), "2024-06-03T10:00:00-04:00", "2024-06-03T11:00:00-04:00"));
-        // Visits for Doctor 2
-        testVisits.add(createVisit(4L, testDoctors.get(1), testPatients.get(0), "2024-06-01T15:00:00+01:00", "2024-06-01T16:00:00+01:00"));
-        testVisits.add(createVisit(5L, testDoctors.get(1), testPatients.get(2), "2024-06-02T15:00:00+01:00", "2024-06-02T16:00:00+01:00"));
-        testVisits.add(createVisit(6L, testDoctors.get(1), testPatients.get(3), "2024-06-03T15:00:00+01:00", "2024-06-03T16:00:00+01:00"));
-        // Visits for Doctor 3
-        testVisits.add(createVisit(7L, testDoctors.get(2), testPatients.get(1), "2024-06-01T18:00:00+09:00", "2024-06-01T19:00:00+09:00"));
-        testVisits.add(createVisit(8L, testDoctors.get(2), testPatients.get(3), "2024-06-02T18:00:00+09:00", "2024-06-02T19:00:00+09:00"));
-
-        // Note: For simplicity, we assume the latest visits are the ones with higher IDs for each patient-doctor pair.
-    }
-
-    private Visit createVisit(Long id, Doctor doctor, Patient patient, String start, String end) {
-        ZonedDateTime startDateTime = ZonedDateTime.parse(start);
-        ZonedDateTime endDateTime = ZonedDateTime.parse(end);
-        return Visit.builder()
-                .id(id)
-                .startDateTime(startDateTime)
-                .endDateTime(endDateTime)
-                .doctor(doctor)
-                .patient(patient)
+                .lastName("Smith")
                 .build();
     }
 
     @Test
-    void createVisit_Success_WithMultipleDoctorsAndPatients() {
-        // Test creating a new visit without overlap
+    void createVisit_Success() {
+        // Given
         CreateVisitRequest request = CreateVisitRequest.builder()
                 .start("2024-07-01T10:00:00-04:00")
                 .end("2024-07-01T11:00:00-04:00")
@@ -138,149 +71,294 @@ class VisitServiceTest {
                 .doctorId(1L)
                 .build();
 
-        when(doctorRepository.findById(1L)).thenReturn(Optional.of(testDoctors.get(0)));
-        when(patientRepository.findById(1L)).thenReturn(Optional.of(testPatients.get(0)));
+        when(doctorRepository.findById(1L)).thenReturn(Optional.of(testDoctor));
+        when(patientRepository.findById(1L)).thenReturn(Optional.of(testPatient));
         when(visitRepository.countOverlappingVisits(anyLong(), any(), any())).thenReturn(0L);
 
+        // When & Then
         assertDoesNotThrow(() -> visitService.createVisit(request));
         verify(visitRepository).save(any(Visit.class));
     }
 
     @Test
-    void createVisit_Overlapping_WithExistingVisits() {
-        // Test overlapping with existing visit for Doctor 1
-        CreateVisitRequest overlappingRequest = CreateVisitRequest.builder()
-                .start("2024-06-01T10:30:00-04:00")
-                .end("2024-06-01T11:30:00-04:00")
-                .patientId(2L)
+    void createVisit_OverlappingVisit_ThrowsException() {
+        // Given
+        CreateVisitRequest request = CreateVisitRequest.builder()
+                .start("2024-07-01T10:00:00-04:00")
+                .end("2024-07-01T11:00:00-04:00")
+                .patientId(1L)
                 .doctorId(1L)
                 .build();
 
-        when(doctorRepository.findById(1L)).thenReturn(Optional.of(testDoctors.get(0)));
-        when(patientRepository.findById(2L)).thenReturn(Optional.of(testPatients.get(1)));
-        when(visitRepository.countOverlappingVisits(eq(1L), any(), any())).thenReturn(1L); // Fixed: Use eq(1L)
+        when(doctorRepository.findById(1L)).thenReturn(Optional.of(testDoctor));
+        when(patientRepository.findById(1L)).thenReturn(Optional.of(testPatient));
+        when(visitRepository.countOverlappingVisits(eq(1L), any(), any())).thenReturn(1L);
 
-        val exception = assertThrows(BusinessException.class,
-                () -> visitService.createVisit(overlappingRequest));
+        // When & Then
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> visitService.createVisit(request));
         assertEquals("Doctor already has a visit scheduled at this time", exception.getMessage());
         verify(visitRepository, never()).save(any());
     }
 
     @Test
-    void getPatients_Success_WithMultipleRelations() {
-        // Given: All patients, no filters
-        Page<Patient> patientsPage = new PageImpl<>(testPatients);
-        when(patientRepository.findPatientsWithFilters(null, null, PageRequest.of(0, 20)))
-                .thenReturn(patientsPage);
-        when(patientRepository.countPatientsWithFilters(null, null))
-                .thenReturn(4L);
-        when(visitRepository.findLatestVisitsForPatients(anyList()))
-                .thenReturn(testVisits);
-        // Simulate countPatientsByDoctors: Doctor1:3 patients, Doctor2:3, Doctor3:2
-        when(visitRepository.countPatientsByDoctors(anyList()))
-                .thenReturn(Arrays.asList(
-                        new Object[]{1L, 3L},
-                        new Object[]{2L, 3L},
-                        new Object[]{3L, 2L}
-                ));
+    void createVisit_DoctorNotFound_ThrowsException() {
+        // Given
+        CreateVisitRequest request = CreateVisitRequest.builder()
+                .start("2024-07-01T10:00:00-04:00")
+                .end("2024-07-01T11:00:00-04:00")
+                .patientId(1L)
+                .doctorId(999L)
+                .build();
+
+        when(doctorRepository.findById(999L)).thenReturn(Optional.empty());
+
+        // When & Then
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> visitService.createVisit(request));
+        assertEquals("Doctor not found", exception.getMessage());
+        verify(visitRepository, never()).save(any());
+    }
+
+    @Test
+    void createVisit_PatientNotFound_ThrowsException() {
+        // Given
+        CreateVisitRequest request = CreateVisitRequest.builder()
+                .start("2024-07-01T10:00:00-04:00")
+                .end("2024-07-01T11:00:00-04:00")
+                .patientId(999L)
+                .doctorId(1L)
+                .build();
+
+        when(doctorRepository.findById(1L)).thenReturn(Optional.of(testDoctor));
+        when(patientRepository.findById(999L)).thenReturn(Optional.empty());
+
+        // When & Then
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> visitService.createVisit(request));
+        assertEquals("Patient not found", exception.getMessage());
+        verify(visitRepository, never()).save(any());
+    }
+
+    @Test
+    void createVisit_InvalidTimeRange_ThrowsException() {
+        // Given
+        CreateVisitRequest request = CreateVisitRequest.builder()
+                .start("2024-07-01T11:00:00-04:00")
+                .end("2024-07-01T10:00:00-04:00")
+                .patientId(1L)
+                .doctorId(1L)
+                .build();
+
+        when(doctorRepository.findById(1L)).thenReturn(Optional.of(testDoctor));
+        when(patientRepository.findById(1L)).thenReturn(Optional.of(testPatient));
+
+        // When & Then
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> visitService.createVisit(request));
+        assertEquals("Start time must be before end time", exception.getMessage());
+        verify(visitRepository, never()).save(any());
+    }
+
+    @Test
+    void getPatients_WithoutDoctorFilter_Success() {
+        // Given
+        ZonedDateTime visitStart = ZonedDateTime.parse("2024-07-01T10:00:00-04:00");
+        ZonedDateTime visitEnd = ZonedDateTime.parse("2024-07-01T11:00:00-04:00");
+
+        Object[] row = {
+                1L, // patient_id
+                "Jane", // patient_first_name
+                "Smith", // patient_last_name
+                1L, // visit_id
+                Timestamp.from(visitStart.toInstant()), // start_date_time
+                Timestamp.from(visitEnd.toInstant()), // end_date_time
+                1L, // doctor_id
+                "John", // doctor_first_name
+                "Doe", // doctor_last_name
+                "America/New_York", // timezone
+                3 // patient_count
+        };
+
+        Page<Object[]> resultPage = new PageImpl<>(Collections.singletonList(row), PageRequest.of(0, 20), 1L);
+        when(patientRepository.findAllPatientsWithData(null, PageRequest.of(0, 20)))
+                .thenReturn(resultPage);
 
         // When
-        val response = visitService.getPatients(0, 20, null, null);
+        PatientsListResponse response = visitService.getPatients(0, 20, null, null);
 
         // Then
         assertNotNull(response);
-        assertEquals(4, response.getCount());
-        assertEquals(4, response.getData().size());
+        assertEquals(1, response.getCount());
+        assertEquals(1, response.getData().size());
 
-        // Verify patient 1 (Jane Doe) has visits with Doctor1 and Doctor2
-        val patient1 = response.getData().stream()
-                .filter(p -> p.getFirstName().equals("Jane") && p.getLastName().equals("Doe"))
-                .findFirst().orElse(null);
-        assertNotNull(patient1);
-        assertEquals(2, patient1.getLastVisits().size()); // One latest per doctor
+        assertEquals("Jane", response.getData().get(0).getFirstName());
+        assertEquals("Smith", response.getData().get(0).getLastName());
+        assertEquals(1, response.getData().get(0).getLastVisits().size());
 
-        // Verify doctor patient counts
-        val visitForDoctor1 = patient1.getLastVisits().stream()
-                .filter(v -> v.getDoctor().getFirstName().equals("John"))
-                .findFirst().orElse(null);
-        assertNotNull(visitForDoctor1);
-        assertEquals(3, visitForDoctor1.getDoctor().getTotalPatients());
+        assertEquals("John", response.getData().get(0).getLastVisits().get(0).getDoctor().getFirstName());
+        assertEquals(3, response.getData().get(0).getLastVisits().get(0).getDoctor().getTotalPatients());
 
-        // Similar checks for other patients...
-        // Patient 2 (Michael Brown) visits Doctor1 and Doctor3
-        val patient2 = response.getData().stream()
-                .filter(p -> p.getFirstName().equals("Michael") && p.getLastName().equals("Brown"))
-                .findFirst().orElse(null);
-        assertNotNull(patient2);
-        assertEquals(2, patient2.getLastVisits().size());
-
-        // Patient 3 (Emily Davis) visits Doctor1 and Doctor2
-        val patient3 = response.getData().stream()
-                .filter(p -> p.getFirstName().equals("Emily") && p.getLastName().equals("Davis"))
-                .findFirst().orElse(null);
-        assertNotNull(patient3);
-        assertEquals(2, patient3.getLastVisits().size());
-
-        // Patient 4 (David Wilson) visits Doctor2 and Doctor3
-        val patient4 = response.getData().stream()
-                .filter(p -> p.getFirstName().equals("David") && p.getLastName().equals("Wilson"))
-                .findFirst().orElse(null);
-        assertNotNull(patient4);
-        assertEquals(2, patient4.getLastVisits().size());
+        verify(patientRepository).findAllPatientsWithData(null, PageRequest.of(0, 20));
     }
 
     @Test
-    void getPatients_WithDoctorFilter() {
-        // Given: Filter by doctorIds 1 and 2
+    void getPatients_WithDoctorFilter_Success() {
+        // Given
         List<Long> doctorIds = Arrays.asList(1L, 2L);
-        // Patients associated with these doctors: 1,2,3,4 (all, but verify query)
-        Page<Patient> patientsPage = new PageImpl<>(testPatients.subList(0, 3)); // Assume first 3
-        when(patientRepository.findPatientsWithFilters(null, doctorIds, PageRequest.of(0, 20)))
-                .thenReturn(patientsPage);
-        when(patientRepository.countPatientsWithFilters(null, doctorIds))
-                .thenReturn(3L);
-        when(visitRepository.findLatestVisitsForPatients(anyList()))
-                .thenReturn(testVisits.subList(0, 6)); // Visits related to doctors 1 and 2
-        when(visitRepository.countPatientsByDoctors(anyList()))
-                .thenReturn(Arrays.asList(
-                        new Object[]{1L, 3L},
-                        new Object[]{2L, 3L}
-                ));
+        ZonedDateTime visitStart = ZonedDateTime.parse("2024-07-01T10:00:00-04:00");
+        ZonedDateTime visitEnd = ZonedDateTime.parse("2024-07-01T11:00:00-04:00");
+
+        Object[] row1 = {
+                1L, "Jane", "Smith", 1L,
+                Timestamp.from(visitStart.toInstant()),
+                Timestamp.from(visitEnd.toInstant()),
+                1L, "John", "Doe", "America/New_York", 3
+        };
+
+        Object[] row2 = {
+                1L, "Jane", "Smith", 2L,
+                Timestamp.from(visitStart.plusHours(2).toInstant()),
+                Timestamp.from(visitEnd.plusHours(2).toInstant()),
+                2L, "Alice", "Johnson", "Europe/London", 2
+        };
+
+        Page<Object[]> resultPage = new PageImpl<>(Arrays.asList(row1, row2),
+                PageRequest.of(0, 20), 2);
+
+        when(patientRepository.findPatientsWithAllData(null, doctorIds, 2, PageRequest.of(0, 20)))
+                .thenReturn(resultPage);
 
         // When
-        val response = visitService.getPatients(0, 20, null, doctorIds);
+        PatientsListResponse response = visitService.getPatients(0, 20, null, doctorIds);
 
         // Then
-        assertEquals(3, response.getCount());
-        assertEquals(3, response.getData().size());
-        // Further assertions on data...
+        assertNotNull(response);
+        assertEquals(2, response.getCount());
+        assertEquals(1, response.getData().size()); // One unique patient
+        assertEquals(2, response.getData().get(0).getLastVisits().size()); // Two visits
+
+        verify(patientRepository).findPatientsWithAllData(null, doctorIds, 2, PageRequest.of(0, 20));
     }
 
     @Test
-    void getPatients_WithSearchTerm() {
-        // Given: Search for "doe" (should match Jane Doe)
-        String search = "doe";
-        Page<Patient> patientsPage = new PageImpl<>(Collections.singletonList(testPatients.get(0)));
-        when(patientRepository.findPatientsWithFilters(search, null, PageRequest.of(0, 20)))
-                .thenReturn(patientsPage);
-        when(patientRepository.countPatientsWithFilters(search, null))
-                .thenReturn(1L);
-        when(visitRepository.findLatestVisitsForPatients(anyList()))
-                .thenReturn(Arrays.asList(testVisits.get(0), testVisits.get(3))); // Visits for patient 1
-        when(visitRepository.countPatientsByDoctors(anyList()))
-                .thenReturn(Arrays.asList(
-                        new Object[]{1L, 3L},
-                        new Object[]{2L, 3L}
-                ));
+    void getPatients_WithSearch_Success() {
+        // Given
+        String search = "jane";
+        ZonedDateTime visitStart = ZonedDateTime.parse("2024-07-01T10:00:00-04:00");
+        ZonedDateTime visitEnd = ZonedDateTime.parse("2024-07-01T11:00:00-04:00");
+
+        Object[] row = {
+                1L, "Jane", "Smith", 1L,
+                Timestamp.from(visitStart.toInstant()),
+                Timestamp.from(visitEnd.toInstant()),
+                1L, "John", "Doe", "America/New_York", 3
+        };
+
+        Page<Object[]> resultPage = new PageImpl<>(Collections.singletonList(row), PageRequest.of(0, 20), 1);
+        when(patientRepository.findAllPatientsWithData(search, PageRequest.of(0, 20)))
+                .thenReturn(resultPage);
 
         // When
-        val response = visitService.getPatients(0, 20, search, null);
+        PatientsListResponse response = visitService.getPatients(0, 20, search, null);
+
+        // Then
+        assertEquals(1, response.getCount());
+        assertEquals("Jane", response.getData().get(0).getFirstName());
+
+        verify(patientRepository).findAllPatientsWithData(search, PageRequest.of(0, 20));
+    }
+
+    @Test
+    void getPatients_EmptyResults_Success() {
+        // Given
+        Page<Object[]> emptyPage = new PageImpl<>(Collections.emptyList(),
+                PageRequest.of(0, 20), 0);
+        when(patientRepository.findAllPatientsWithData(null, PageRequest.of(0, 20)))
+                .thenReturn(emptyPage);
+
+        // When
+        PatientsListResponse response = visitService.getPatients(0, 20, null, null);
+
+        // Then
+        assertEquals(0, response.getCount());
+        assertTrue(response.getData().isEmpty());
+
+        verify(patientRepository).findAllPatientsWithData(null, PageRequest.of(0, 20));
+    }
+
+    @Test
+    void getPatients_WithPagination_Success() {
+        // Given
+        Integer page = 1;
+        Integer size = 10;
+
+        Object[] row = {
+                1L, "Jane", "Smith", 1L,
+                Timestamp.from(ZonedDateTime.now().toInstant()),
+                Timestamp.from(ZonedDateTime.now().plusHours(1).toInstant()),
+                1L, "John", "Doe", "America/New_York", 3
+        };
+
+        Page<Object[]> resultPage = new PageImpl<>(Collections.singletonList(row), PageRequest.of(1, 10), 25);
+        when(patientRepository.findAllPatientsWithData(null, PageRequest.of(1, 10)))
+                .thenReturn(resultPage);
+
+        // When
+        PatientsListResponse response = visitService.getPatients(page, size, null, null);
+
+        // Then
+        assertEquals(25, response.getCount()); // Total elements
+        assertEquals(1, response.getData().size()); // Elements on this page
+
+        verify(patientRepository).findAllPatientsWithData(null, PageRequest.of(1, 10));
+    }
+
+    @Test
+    void getPatients_DefaultPagination_Success() {
+        // Given - no page/size parameters
+        Object[] row = {
+                1L, "Jane", "Smith", 1L,
+                Timestamp.from(ZonedDateTime.now().toInstant()),
+                Timestamp.from(ZonedDateTime.now().plusHours(1).toInstant()),
+                1L, "John", "Doe", "America/New_York", 3
+        };
+
+        Page<Object[]> resultPage = new PageImpl<>(Collections.singletonList(row), PageRequest.of(0, 20), 1);
+        when(patientRepository.findAllPatientsWithData(null, PageRequest.of(0, 20)))
+                .thenReturn(resultPage);
+
+        // When
+        PatientsListResponse response = visitService.getPatients(null, null, null, null);
 
         // Then
         assertEquals(1, response.getCount());
         assertEquals(1, response.getData().size());
-        val patient = response.getData().get(0);
-        assertEquals("Jane", patient.getFirstName());
-        assertEquals(2, patient.getLastVisits().size());
+
+        verify(patientRepository).findAllPatientsWithData(null, PageRequest.of(0, 20));
+    }
+
+    @Test
+    void getPatients_PatientWithoutVisits_Success() {
+        // Given - patient without visits (visit_id is null)
+        Object[] row = {
+                1L, "Jane", "Smith", null, // visit_id is null
+                null, null, null, null, null, null, null
+        };
+
+        Page<Object[]> resultPage = new PageImpl<>(Collections.singletonList(row), PageRequest.of(0, 20), 1);
+        when(patientRepository.findAllPatientsWithData(null, PageRequest.of(0, 20)))
+                .thenReturn(resultPage);
+
+        // When
+        PatientsListResponse response = visitService.getPatients(0, 20, null, null);
+
+        // Then
+        assertEquals(1, response.getCount());
+        assertEquals(1, response.getData().size());
+        assertEquals("Jane", response.getData().get(0).getFirstName());
+        assertTrue(response.getData().get(0).getLastVisits().isEmpty()); // No visits
+
+        verify(patientRepository).findAllPatientsWithData(null, PageRequest.of(0, 20));
     }
 }
