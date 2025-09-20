@@ -9,9 +9,6 @@ import org.example.meditrack.models.Visit;
 import org.example.meditrack.repositories.DoctorRepository;
 import org.example.meditrack.repositories.PatientRepository;
 import org.example.meditrack.repositories.VisitRepository;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -69,27 +66,30 @@ public class VisitService {
     public PatientsListResponse getPatients(Integer page, Integer size, String search, List<Long> doctorIds) {
         int actualPage = page != null ? page : 0;
         int actualSize = size != null ? size : 20;
+        int offset = actualPage * actualSize;
 
-        Pageable pageable = PageRequest.of(actualPage, actualSize);
-
-        Page<Object[]> resultPage;
+        List<Object[]> results;
 
         if (doctorIds == null || doctorIds.isEmpty()) {
-            resultPage = patientRepository.findAllPatientsWithData(search, pageable);
+            results = patientRepository.findAllPatientsWithDataOptimized(search, offset, actualSize);
         } else {
-            resultPage = patientRepository.findPatientsWithAllData(search, doctorIds, doctorIds.size(), pageable);
+            results = patientRepository.findPatientsWithAllDataOptimized(
+                    search, doctorIds, doctorIds.size(), offset, actualSize);
         }
 
-        if (resultPage.isEmpty()) {
+        if (results.isEmpty()) {
             return PatientsListResponse.builder()
                     .data(Collections.emptyList())
-                    .count(resultPage.getTotalElements())
+                    .count(0L)
                     .build();
         }
 
+
+        long totalCount = ((Number) results.get(0)[11]).longValue();
+
         Map<Long, PatientData> patientDataMap = new LinkedHashMap<>();
 
-        for (Object[] row : resultPage.getContent()) {
+        for (Object[] row : results) {
             Long patientId = ((Number) row[0]).longValue();
             String patientFirstName = (String) row[1];
             String patientLastName = (String) row[2];
@@ -103,7 +103,6 @@ public class VisitService {
             );
 
             if (row[3] != null) {
-                // Convert Timestamp to ZonedDateTime
                 Timestamp startTimestamp = (Timestamp) row[4];
                 Timestamp endTimestamp = (Timestamp) row[5];
                 ZonedDateTime startDateTime = startTimestamp.toInstant().atZone(ZoneId.systemDefault());
@@ -133,7 +132,7 @@ public class VisitService {
 
         return PatientsListResponse.builder()
                 .data(patientResponses)
-                .count(resultPage.getTotalElements())
+                .count(totalCount)
                 .build();
     }
 

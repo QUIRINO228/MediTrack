@@ -7,7 +7,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.ZonedDateTime;
-import java.util.List;
 
 @Repository
 public interface VisitRepository extends JpaRepository<Visit, Long> {
